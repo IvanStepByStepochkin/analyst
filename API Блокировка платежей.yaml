@@ -1,0 +1,139 @@
+openapi: 3.0.3
+info:
+  title: Блокировка платежей
+  description: Спецификация по добавлению возможности блокировки платежей в различных случаях.
+  version: 1.0.0
+
+paths:
+  /clients/{client_id}/block:
+    post:
+      summary: Заблокировать платежи клиента
+      description: Блокирует возможность совершения платежей клиентом по причине установленного типа блокировки
+      parameters:
+        - $ref: '#/components/parameters/client_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - block_type
+              properties:
+                block_type:
+                  type: string
+                  enum: ["Мошенник", "Указаны неверные реквизиты"]
+                  description: Тип блокировки
+                reason:
+                  type: string
+                  description: Причина блокировки
+              example:
+                block_type: "Мошенник"
+                reason: "Клиент является мошенником"
+      responses:
+        '200':
+          description: Произведена успешная блокировка
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Платежи заблокированы"
+        '404':
+          description: Клиент не найден
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Ошибка. Клиент не найден"
+
+  /clients/{client_id}/unblock:
+    post:
+      summary: Разблокировать платежи клиента
+      description: Восстанавливает возможность совершения платежей клиентом.
+      parameters:
+        - $ref: '#/components/parameters/client_id'
+      responses:
+        '200':
+          description: Произведена успешная разблокировка
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Платежи разблокированы"
+        '404':
+          description: Клиент не найден
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Ошибка. Клиент не найден"
+
+  /clients/{client_id}/block_status:
+    get:
+      summary: Проверить статус блокировки платежей клиента
+      description: Возвращает информацию о статусе блокировки платежей клиента. Если платежи заблокированы, указывается причина.
+      parameters:
+        - $ref: '#/components/parameters/client_id'
+      responses:
+        '200':
+          description: Статус блокировки платежей клиента
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - is_blocked
+                    created_at
+                properties:
+                  is_blocked:
+                    type: boolean
+                    description: Признак, показывающий, заблокированы ли платежи клиента
+                    example: true
+                  block_type:
+                    type: string
+                    description: Тип блокировки
+                    enum: ["Мошенник", "Указаны неверные реквизиты"]
+                  reason:
+                    type: string
+                    description: Причина блокировки
+                  created_at:
+                    type: string
+                    format: date-time
+                    description: Дата и время последней блокировки или разблокировки
+                example:
+                  is_blocked: true
+                  block_type: "Мошенник"
+                  reason: "Обнаружена мошенническая активность"
+                  created_at: "2024-11-12T10:30:00Z"
+        '404':
+          description: Клиент не найден
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Ошибка. Клиент не найден"
+ 
+components:
+  parameters:
+    client_id:
+      name: client_id
+      in: path
+      required: true
+      schema:
+        type: integer
+      description: Уникальный идентификатор клиента
