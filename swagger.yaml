@@ -1,0 +1,453 @@
+openapi: 3.0.0
+info:
+  title: Likes & Dislikes API
+  description: API для работы с профилем пользователя, лайками, дизлайками и обратной связью.
+  version: "1.0.0"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+paths:
+  # 1. Получение информации о своем профиле (с деталями лайков/дизлайков)
+  /users/me:
+    get:
+      summary: Получить информацию о своем профиле
+      description: |
+        Возвращает данные о текущем (авторизованном) пользователе, включая его ФИО, 
+        а также общее количество полученных лайков и дизлайков.
+      security:
+        - bearerAuth: []   # Требуется валидный JWT токен
+      responses:
+        "200":
+          description: Данные о профиле текущего пользователя.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                    description: ID текущего пользователя.
+                    example: 1
+                  full_name:
+                    type: string
+                    description: ФИО пользователя.
+                    example: "Иванов Иван Иванович"
+                  likes_count:
+                    type: integer
+                    description: Количество лайков, полученных пользователем.
+                    example: 20
+                  dislikes_count:
+                    type: integer
+                    description: Количество дизлайков, полученных пользователем.
+                    example: 5
+        "401":
+          description: Неавторизованный доступ – токен не передан или истёк.
+
+  # 2. Получение информации о профиле другого пользователя (публичные данные)
+  /users/{user_id}:
+    get:
+      summary: Получить информацию о профиле пользователя
+      description: |
+        Возвращает публичные данные о пользователе с указанным ID (например, ФИО и 
+        количество полученных лайков). **Внимание:** Дизлайки пользователя в публичном профиле не отображаются.
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID пользователя, информацию о котором запрашиваем.
+      responses:
+        "200":
+          description: Данные о пользователе успешно получены.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                    description: ID пользователя.
+                    example: 2
+                  full_name:
+                    type: string
+                    description: ФИО пользователя.
+                    example: "Петров Петр Петрович"
+                  likes_count:
+                    type: integer
+                    description: Количество лайков, полученных пользователем (не включает дизлайки).
+                    example: 15
+        "404":
+          description: Пользователь не найден (неверный ID).
+
+  # 3. Создание лайка пользователю (с optional обратной связью)
+  /users/{user_id}/like:
+    post:
+      summary: Поставить лайк пользователю
+      description: |
+        Авторизованный пользователь оставляет лайк указанному пользователю. 
+        Можно дополнительно добавить обратную связь (заголовок и текст отзыва, публично или анонимно).
+        В день можно поставить только один лайк конкретному пользователю. Нельзя лайкнуть самого себя.
+      security:
+        - bearerAuth: []   # Должен быть авторизован
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID пользователя, которому ставится лайк.
+      requestBody:
+        description: Опциональные данные обратной связи, сопровождающей лайк.
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                visibility:
+                  type: string
+                  enum: [public, anonymous]
+                  description: Тип обратной связи – публичная (отправитель открыт) или анонимная.
+                  example: "public"
+                title:
+                  type: string
+                  description: Заголовок отзыва (обратной связи).
+                  example: "Отличная работа!"
+                context:
+                  type: string
+                  description: Текст отзыва с деталями.
+                  example: "Вы прекрасно справились с поставленной задачей."
+      responses:
+        "201":
+          description: Лайк успешно создан. (Опционально – возвращает информацию о созданной оценке.)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  like_id:
+                    type: integer
+                    description: ID созданного лайка.
+                    example: 101
+                  message:
+                    type: string
+                    description: Статусное сообщение.
+                    example: "Лайк добавлен."
+        "400":
+          description: Невалидный запрос – например, попытка поставить лайк самому себе или повторный лайк тому же пользователю в тот же день.
+        "401":
+          description: Неавторизованный доступ – требуется вход в систему.
+        "404":
+          description: Пользователь с заданным ID не найден.
+        "409":
+          description: Конфликт – лайк этому пользователю уже был оставлен сегодня.
+
+    put:
+      summary: Редактировать лайк/отзыв
+      description: |
+        Позволяет отредактировать ранее оставленный лайк указанному пользователю – например, изменить текст обратной связи или статус анонимности.
+        **Важно:** Редактировать можно только собственный ранее оставленный лайк (например, в тот же день до истечения суток или в любое время, в зависимости от бизнес-логики).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID пользователя, чей полученный от текущего пользователя лайк редактируется.
+      requestBody:
+        description: Новые данные обратной связи для обновления.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                visibility:
+                  type: string
+                  enum: [public, anonymous]
+                  description: Обновлённый тип обратной связи – публичная или анонимная.
+                  example: "anonymous"
+                title:
+                  type: string
+                  description: Обновлённый заголовок отзыва.
+                  example: "Исправляю отзыв"
+                context:
+                  type: string
+                  description: Обновлённый текст отзыва.
+                  example: "Хочу дополнить: ваша работа была отличной, спасибо!"
+      responses:
+        "200":
+          description: Лайк/отзыв успешно отредактирован.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Обратная связь обновлена."
+        "400":
+          description: Некорректный запрос – возможно, отсутствуют требуемые поля или нет права редактировать (например, прошло допустимое время).
+        "401":
+          description: Неавторизованный доступ.
+        "404":
+          description: Не найден лайк от текущего пользователя этому получателю (невозможно отредактировать несуществующую запись).
+
+    delete:
+      summary: Удалить поставленный лайк
+      description: |
+        Отзыв текущего пользователя (лайк) у выбранного пользователя удаляется. 
+        Используется, если отправитель хочет отозвать свой лайк и связанный с ним отзыв.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID пользователя, у которого удаляется ранее поставленный лайк.
+      responses:
+        "200":
+          description: Лайк успешно удалён (отозван).
+        "401":
+          description: Неавторизованный доступ.
+        "404":
+          description: Лайк от текущего пользователя данному пользователю не найден (нечего удалять).
+
+  # 4. Создание дизлайка пользователю (с optional обратной связью)
+  /users/{user_id}/dislike:
+    post:
+      summary: Поставить дизлайк пользователю
+      description: |
+        Авторизованный пользователь оставляет дизлайк (негативную оценку) указанному пользователю. 
+        Можно добавить обратную связь с пояснениями (заголовок и текст), публично или анонимно.
+        Разрешён только один дизлайк в отношении конкретного пользователя в сутки. Нельзя дизлайкнуть самого себя.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID пользователя, которому ставится дизлайк.
+      requestBody:
+        description: Опциональные данные обратной связи (отзыва) для сопровождающего сообщения.
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                visibility:
+                  type: string
+                  enum: [public, anonymous]
+                  description: Публичность обратной связи – публично (открыто) или анонимно.
+                  example: "anonymous"
+                title:
+                  type: string
+                  description: Заголовок отзыва.
+                  example: "Есть недостатки"
+                context:
+                  type: string
+                  description: Детальный текст обратной связи с критикой.
+                  example: "Проект выполнен не полностью, были пропущены важные требования."
+      responses:
+        "201":
+          description: Дизлайк успешно создан.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dislike_id:
+                    type: integer
+                    description: ID созданного дизлайка.
+                    example: 202
+                  message:
+                    type: string
+                    example: "Дизлайк добавлен."
+        "400":
+          description: Неверный запрос – например, попытка дизлайкнуть себя или повторный дизлайк тому же пользователю в тот же день.
+        "401":
+          description: Неавторизованный доступ – требуется авторизация.
+        "404":
+          description: Пользователь с указанным ID не найден.
+        "409":
+          description: Конфликт – дизлайк этому пользователю уже был оставлен сегодня.
+
+    put:
+      summary: Редактировать дизлайк/отзыв
+      description: |
+        Позволяет отредактировать ранее оставленный дизлайк (например, изменить текст отрицательного отзыва или его анонимность).
+        Редактировать можно только собственный дизлайк, адресованный указанному пользователю.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID пользователя, чей полученный от текущего пользователя дизлайк редактируется.
+      requestBody:
+        description: Новые данные обратной связи для обновления (заголовок, текст, видимость).
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                visibility:
+                  type: string
+                  enum: [public, anonymous]
+                  description: Обновлённый статус обратной связи – публичный или анонимный.
+                  example: "public"
+                title:
+                  type: string
+                  description: Обновлённый заголовок отрицательного отзыва.
+                  example: "Уточнение замечаний"
+                context:
+                  type: string
+                  description: Обновлённый текст отрицательного отзыва.
+                  example: "Хочу дополнить: были обнаружены недочёты в документации."
+      responses:
+        "200":
+          description: Дизлайк/отзыв успешно отредактирован.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Обратная связь обновлена."
+        "400":
+          description: Некорректный запрос – возможно, отсутствие обязательных полей или попытка отредактировать чужую/несуществующую запись.
+        "401":
+          description: Неавторизованный доступ.
+        "404":
+          description: Не найден дизлайк от текущего пользователя этому получателю.
+
+    delete:
+      summary: Удалить поставленный дизлайк
+      description: |
+        Удаляет ранее поставленный текущим пользователем дизлайк указанному пользователю, включая привязанный отзыв. 
+        Используется, если отправитель передумал или ошибочно оставил негативную оценку.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID пользователя, у которого удаляется ранее поставленный дизлайк.
+      responses:
+        "200":
+          description: Дизлайк успешно удалён.
+        "401":
+          description: Неавторизованный доступ.
+        "404":
+          description: Дизлайк от текущего пользователя данному пользователю не найден.
+
+  # 5. Получение списка полученных лайков/дизлайков с обратной связью
+  /users/me/feedback:
+    get:
+      summary: Просмотр обратной связи (лайки/дизлайки) по себе
+      description: |
+        Возвращает список лайков и дизлайков, которые текущий пользователь получил от других, **вместе с текстом обратной связи** (если он был оставлен). 
+        Для каждой записи, если обратная связь была оставлена публично, указывается ФИО автора отзыва; если отзыв анонимный – вместо имени отображается "Аноним".
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Список полученных отзывов успешно получен.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [like, dislike]
+                      description: Тип оценки (лайк или дизлайк).
+                      example: "like"
+                    sender_full_name:
+                      type: string
+                      description: ФИО автора оценки, если обратная связь публичная; иначе "Аноним".
+                      example: "Иванов Иван Иванович"
+                    title:
+                      type: string
+                      description: Заголовок обратной связи.
+                      example: "Отличная работа!"
+                    context:
+                      type: string
+                      description: Текст обратной связи.
+                      example: "Очень хорошо справился с задачей."
+        "401":
+          description: Неавторизованный доступ – требуется авторизация.
+
+  # 6. Удаление негативной оценки (дизлайка), полученной текущим пользователем
+  # 6. Удаление дизлайка, полученного текущим пользователем
+  /users/me/dislike/{dislike_id}:
+    delete:
+      summary: Удалить дизлайк, полученный текущим пользователем
+      description: |
+        Позволяет пользователю удалить дизлайк, который он получил от другого пользователя. 
+        Удаление производится по ID дизлайка. Такой ID может быть получен из списка отзывов (/users/me/feedback).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: dislike_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Уникальный идентификатор дизлайка, подлежащего удалению.
+      responses:
+        "200":
+          description: Дизлайк успешно удалён из профиля пользователя.
+        "404":
+          description: Дизлайк не найден (например, указан неверный идентификатор или уже удалён).
+        "401":
+          description: Неавторизованный доступ.
+  # 7. Получение статистики по лайкам пользователя
+  /users/{user_id}/stats:
+    get:
+      summary: Получить статистику лайков пользователя
+      description: |
+        Возвращает сводную статистику по лайкам для указанного пользователя – общее количество полученных лайков. 
+        Детали по дизлайкам или сами отзывы не включены (см. требования приватности).
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID пользователя, чью статистику запрашиваем.
+      responses:
+        "200":
+          description: Статистика успешно получена.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  likes_count:
+                    type: integer
+                    description: Общее количество лайков, полученных пользователем.
+                    example: 20
+        "404":
+          description: Пользователь не найден.
